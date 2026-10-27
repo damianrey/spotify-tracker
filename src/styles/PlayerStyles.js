@@ -1,20 +1,311 @@
-import styled from 'styled-components';
+import styled from "styled-components";
 
 export const PlayerWrapper = styled.div`
   position: fixed;
   bottom: 20px;
-  right: 20px;
-  width: 520px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(940px, calc(100vw - 32px));
   z-index: 1000;
+  display: flex;
+  align-items: center;
+  background: rgba(18, 21, 27, 0.94);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 18px;
+  padding: 6px 18px 6px 12px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7),
+    0 0 25px rgba(29, 185, 84, 0.12);
+
+  /* Ajustes internos do react-spotify-web-playback */
+  .PlayerRSWP {
+    flex: 1;
+    min-width: 0;
+    background: transparent !important;
+  }
+
+  /* Impede que o ícone de Devices quebre para uma segunda linha e expanda o player */
+  [data-component-name="Wrapper"] {
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    min-height: 68px !important;
+    padding: 0 !important;
+  }
+
+  [data-component-name="Info"] {
+    width: 240px !important;
+    min-width: 240px !important;
+    max-width: 240px !important;
+    min-height: 64px !important;
+    flex: 0 0 240px !important;
+  }
+
+  [data-component-name="Controls"] {
+    width: auto !important;
+    flex: 1 1 auto !important;
+    padding: 0 12px 24px 12px !important;
+  }
+
+  ._ControlsButtonsRSWP {
+    margin-bottom: 0 !important;
+  }
+
+  [data-component-name="Actions"] {
+    width: auto !important;
+    flex: 0 0 auto !important;
+    height: auto !important;
+    position: static !important;
+    padding: 0 6px !important;
+  }
+
+  /* Oculta as barras nativas lentas de volume e progresso da biblioteca */
+  [data-component-name="Volume"],
+  [data-component-name="Slider"] {
+    display: none !important;
+  }
+
+  @media (max-width: 820px) {
+    flex-direction: column;
+    padding: 10px 14px;
+    bottom: 10px;
+    width: calc(100vw - 20px);
+    gap: 8px;
+
+    [data-component-name="Info"] {
+      width: 170px !important;
+      min-width: 170px !important;
+      max-width: 170px !important;
+      flex: 0 0 170px !important;
+    }
+
+    [data-component-name="Controls"] {
+      padding: 0 6px !important;
+    }
+  }
+`;
+
+export const SeekBarContainer = styled.div`
+  position: absolute;
+  bottom: 10px;
+  left: 268px;
+  right: 296px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  z-index: 25;
+  user-select: none;
+
+  @media (max-width: 820px) {
+    position: static;
+    width: 100%;
+    padding: 0 4px;
+  }
+`;
+
+export const SeekTime = styled.span`
+  min-width: 34px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #9ca3af;
+  font-variant-numeric: tabular-nums;
+  text-align: ${(props) => (props.$alignRight ? "right" : "left")};
+`;
+
+export const SeekSlider = styled.input`
+  -webkit-appearance: none;
+  appearance: none;
+  flex: 1;
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: ${(props) =>
+    `linear-gradient(to right, #1db954 0%, #1ed760 ${props.$percent}%, rgba(255, 255, 255, 0.18) ${props.$percent}%, rgba(255, 255, 255, 0.18) 100%)`};
+  outline: none;
+  cursor: pointer;
+  transition: height 0.15s ease;
+
+  &:hover {
+    height: 8px;
+  }
+
+  &:disabled {
+    cursor: default;
+    opacity: 0.5;
+  }
+
+  &::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #ffffff;
+    border: 2px solid #1db954;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+    cursor: grab;
+    transition: transform 0.12s ease, background-color 0.12s ease;
+  }
+
+  &::-webkit-slider-thumb:hover {
+    transform: scale(1.2);
+    background: #1ed760;
+  }
+
+  &::-webkit-slider-thumb:active {
+    cursor: grabbing;
+    transform: scale(1.25);
+  }
+
+  &::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #ffffff;
+    border: 2px solid #1db954;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+    cursor: grab;
+    transition: transform 0.12s ease;
+  }
+`;
+
+export const VolumeContainer = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 14px;
+  margin-left: 4px;
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
+  user-select: none;
+
+  @media (max-width: 820px) {
+    border-left: none;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    padding-left: 0;
+    margin-left: 0;
+    padding-top: 8px;
+    width: 100%;
+    justify-content: center;
+  }
+`;
+
+export const VolumeIconButton = styled.button`
+  background: transparent;
+  border: none;
+  color: ${(props) => (props.$muted ? "#ef4444" : "#d1d5db")};
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  border-radius: 8px;
+  transition: all 0.15s ease;
+
+  &:hover {
+    color: ${(props) => (props.$muted ? "#f87171" : "#1ed760")};
+    background: rgba(255, 255, 255, 0.06);
+  }
+`;
+
+export const VolumeStepButton = styled.button`
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #e5e7eb;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+
+  &:hover {
+    background: rgba(29, 185, 84, 0.2);
+    border-color: #1db954;
+    color: #1ed760;
+  }
+
+  &:active {
+    transform: scale(0.92);
+  }
+`;
+
+export const VolumeSlider = styled.input`
+  -webkit-appearance: none;
+  appearance: none;
+  width: 110px;
+  height: 6px;
+  border-radius: 999px;
+  background: ${(props) =>
+    `linear-gradient(to right, #1db954 0%, #1ed760 ${props.$percent}%, rgba(255, 255, 255, 0.18) ${props.$percent}%, rgba(255, 255, 255, 0.18) 100%)`};
+  outline: none;
+  cursor: pointer;
+  transition: height 0.15s ease;
+
+  &:hover {
+    height: 8px;
+  }
+
+  &::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #ffffff;
+    border: 2px solid #1db954;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+    cursor: grab;
+    transition: transform 0.12s ease, background-color 0.12s ease;
+  }
+
+  &::-webkit-slider-thumb:hover {
+    transform: scale(1.2);
+    background: #1ed760;
+  }
+
+  &::-webkit-slider-thumb:active {
+    cursor: grabbing;
+    transform: scale(1.25);
+  }
+
+  &::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #ffffff;
+    border: 2px solid #1db954;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+    cursor: grab;
+    transition: transform 0.12s ease;
+  }
+`;
+
+export const VolumePercentage = styled.span`
+  min-width: 36px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #9ca3af;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 `;
 
 export const playerStyles = {
-  activeColor: '#1db954',
-  bgColor: '#333',
-  color: '#fff', 
-  loaderColor: '#1db954', 
-  sliderColor: '#1db954', 
-  trackArtistColor: '#ccc', 
-  trackNameColor: '#fff', 
-  height: '80px', 
+  activeColor: "#1db954",
+  bgColor: "transparent",
+  color: "#ffffff",
+  loaderColor: "#1db954",
+  sliderColor: "#1db954",
+  sliderTrackColor: "rgba(255, 255, 255, 0.18)",
+  sliderHandleColor: "#ffffff",
+  sliderTrackBorderRadius: 999,
+  trackArtistColor: "#9ca3af",
+  trackNameColor: "#f9fafb",
+  height: 68,
 };

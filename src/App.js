@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useCallback, useEffect } from "react";
 import Auth from "./components/Auth";
 import TopTracks from "./components/TopTracks";
 import TopArtists from "./components/TopArtists";
@@ -12,13 +12,77 @@ import {
   TabList,
   Tab,
   TabPanel,
+  ToolbarRow,
+  SectionInfo,
   PeriodTabs,
   PeriodTabList,
   PeriodTab,
+  WelcomeCard,
 } from "./styles/LayoutStyle";
 import MainLogo from "./img/mainlogo.png";
-import { PlayerWrapper, playerStyles } from "./styles/PlayerStyles";
+import {
+  PlayerWrapper,
+  SeekBarContainer,
+  SeekTime,
+  SeekSlider,
+  VolumeContainer,
+  VolumeIconButton,
+  VolumeStepButton,
+  VolumeSlider,
+  VolumePercentage,
+  playerStyles,
+} from "./styles/PlayerStyles";
 import SpotifyPlayer from "react-spotify-web-playback";
+
+const TAB_DETAILS = [
+  {
+    title: "Top Tracks",
+    subtitle: "Suas faixas mais reproduzidas — clique em qualquer música para ouvir",
+  },
+  {
+    title: "Top Albums",
+    subtitle: "Os álbuns que dominaram a sua fila de reprodução",
+  },
+  {
+    title: "Top Artists",
+    subtitle: "Os artistas que definem a sua trilha sonora",
+  },
+];
+
+const formatTime = (ms) => {
+  if (!ms || ms < 0 || !Number.isFinite(ms)) return "0:00";
+  const totalSeconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds < 10 ? "0" : ""}${seconds}`;
+};
+
+const VolumeIcon = ({ volume, isMuted }) => {
+  if (isMuted || volume === 0) {
+    return (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+        <line x1="23" y1="9" x2="17" y2="15" />
+        <line x1="17" y1="9" x2="23" y2="15" />
+      </svg>
+    );
+  }
+  if (volume < 45) {
+    return (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+        <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+      </svg>
+    );
+  }
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+      <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+      <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+    </svg>
+  );
+};
 
 function App() {
   const [token, setToken] = useState("");
@@ -26,95 +90,356 @@ function App() {
   const [activeTab, setActiveTab] = useState(0);
   const [timeRange, setTimeRange] = useState("short_term");
 
+  // Estados de progresso da faixa (Seek Bar customizada)
+  const [progressMs, setProgressMs] = useState(0);
+  const [durationMs, setDurationMs] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+
+  const isDraggingSeekRef = useRef(false);
+  const seekReleaseTimerRef = useRef(null);
+  const seekThrottleTimerRef = useRef(null);
+  const lastSeekExecutionRef = useRef(0);
+
+  // Estados de volume
+  const [volume, setVolume] = useState(() => {
+    const saved = window.localStorage.getItem("spotify_tracker_volume");
+    return saved !== null ? Number(saved) : 70;
+  });
+  const [isMuted, setIsMuted] = useState(false);
+
+  const previousVolumeRef = useRef(volume > 0 ? volume : 70);
+  const playerRef = useRef(null);
+  const sdkThrottleTimer = useRef(null);
+  const lastSdkExecution = useRef(0);
+
+  // Atualiza a barra de progresso suavemente enquanto a música está tocando
+  useEffect(() => {
+    if (!isPlaying) return;
+
+    const interval = setInterval(async () => {
+      if (isDraggingSeekRef.current || !playerRef.current) return;
+      try {
+        const state = await playerRef.current.getCurrentState();
+        if (state && !isDraggingSeekRef.current) {
+          setProgressMs(state.position);
+          if (state.track_window?.current_track?.duration_ms) {
+            setDurationMs(state.track_window.current_track.duration_ms);
+          }
+        }
+      } catch (e) {
+        // Ignora erros transitórios de leitura de estado
+      }
+    }, 200);
+
+    return () => clearInterval(interval);
+  }, [isPlaying]);
+
+  const handlePlayerCallback = useCallback((state) => {
+    setIsPlaying(!!state.isPlaying);
+    if (state.track && state.track.durationMs) {
+      setDurationMs(state.track.durationMs);
+    }
+    if (!isDraggingSeekRef.current && typeof state.progressMs === "number") {
+      setProgressMs(state.progressMs);
+    }
+  }, []);
+
+  const syncSeekToPlayer = useCallback((targetMs, immediate = false) => {
+    const clampedMs = Math.max(0, Math.round(targetMs));
+    const now = performance.now();
+
+    const executeSeek = () => {
+      lastSeekExecutionRef.current = performance.now();
+      if (playerRef.current && typeof playerRef.current.seek === "function") {
+        playerRef.current.seek(clampedMs).catch(() => {});
+      }
+    };
+
+    if (immediate || now - lastSeekExecutionRef.current >= 50) {
+      clearTimeout(seekThrottleTimerRef.current);
+      executeSeek();
+    } else {
+      clearTimeout(seekThrottleTimerRef.current);
+      seekThrottleTimerRef.current = setTimeout(executeSeek, 50);
+    }
+  }, []);
+
+  const handleSeekChange = (e) => {
+    if (!durationMs) return;
+    isDraggingSeekRef.current = true;
+    clearTimeout(seekReleaseTimerRef.current);
+
+    const nextProgress = Number(e.target.value);
+    setProgressMs(nextProgress);
+    syncSeekToPlayer(nextProgress, false);
+
+    // Libera a atualização automática alguns milissegundos após parar de interagir
+    seekReleaseTimerRef.current = setTimeout(() => {
+      isDraggingSeekRef.current = false;
+    }, 250);
+  };
+
+  const handleSeekCommit = () => {
+    if (!durationMs) return;
+    syncSeekToPlayer(progressMs, true);
+    clearTimeout(seekReleaseTimerRef.current);
+    seekReleaseTimerRef.current = setTimeout(() => {
+      isDraggingSeekRef.current = false;
+    }, 180);
+  };
+
+  const handleSeekWheel = (e) => {
+    if (!durationMs) return;
+    e.preventDefault();
+    isDraggingSeekRef.current = true;
+    const stepMs = e.deltaY < 0 ? 5000 : -5000;
+    const nextProgress = Math.max(0, Math.min(durationMs, progressMs + stepMs));
+    setProgressMs(nextProgress);
+    syncSeekToPlayer(nextProgress, false);
+
+    clearTimeout(seekReleaseTimerRef.current);
+    seekReleaseTimerRef.current = setTimeout(() => {
+      isDraggingSeekRef.current = false;
+    }, 250);
+  };
+
+  const syncVolumeToPlayer = useCallback((targetVolume) => {
+    const normalized = Math.max(0, Math.min(1, targetVolume / 100));
+    const now = performance.now();
+
+    const executeSetVolume = () => {
+      lastSdkExecution.current = performance.now();
+      if (playerRef.current && typeof playerRef.current.setVolume === "function") {
+        playerRef.current.setVolume(normalized).catch(() => {});
+      }
+    };
+
+    if (now - lastSdkExecution.current >= 25) {
+      clearTimeout(sdkThrottleTimer.current);
+      executeSetVolume();
+    } else {
+      clearTimeout(sdkThrottleTimer.current);
+      sdkThrottleTimer.current = setTimeout(executeSetVolume, 25);
+    }
+  }, []);
+
+  const applyVolume = useCallback(
+    (rawValue) => {
+      const clamped = Math.max(0, Math.min(100, Math.round(rawValue)));
+      setVolume(clamped);
+      setIsMuted(clamped === 0);
+      window.localStorage.setItem("spotify_tracker_volume", String(clamped));
+
+      if (clamped > 0) {
+        previousVolumeRef.current = clamped;
+      }
+
+      syncVolumeToPlayer(clamped);
+    },
+    [syncVolumeToPlayer]
+  );
+
+  const toggleMute = () => {
+    if (isMuted || volume === 0) {
+      const restored = previousVolumeRef.current > 0 ? previousVolumeRef.current : 60;
+      applyVolume(restored);
+    } else {
+      previousVolumeRef.current = volume;
+      applyVolume(0);
+    }
+  };
+
+  const handleVolumeWheel = (e) => {
+    e.preventDefault();
+    const delta = e.deltaY < 0 ? 4 : -4;
+    const current = isMuted ? 0 : volume;
+    applyVolume(current + delta);
+  };
+
+  const effectiveVolume = isMuted ? 0 : volume;
+  const seekPercent =
+    durationMs > 0 ? Math.min(100, Math.max(0, (progressMs / durationMs) * 100)) : 0;
+
   return (
     <div>
       <Header>
         <HeaderLeft>
-          <img src={MainLogo} alt="" width={46} height={46} />
+          <img src={MainLogo} alt="SpotifyTracker" width={42} height={42} />
           <HeaderTitle>SpotifyTracker</HeaderTitle>
         </HeaderLeft>
-        <TabList>
-          <Tab
-            className={activeTab === 0 ? "active" : ""}
-            onClick={() => setActiveTab(0)}
-          >
-            Top Tracks
-          </Tab>
-          <Tab
-            className={activeTab === 1 ? "active" : ""}
-            onClick={() => setActiveTab(1)}
-          >
-            Top Albums
-          </Tab>
-          <Tab
-            className={activeTab === 2 ? "active" : ""}
-            onClick={() => setActiveTab(2)}
-          >
-            Top Artists
-          </Tab>
-        </TabList>
+        {token && (
+          <TabList>
+            <Tab
+              className={activeTab === 0 ? "active" : ""}
+              onClick={() => setActiveTab(0)}
+            >
+              Top Tracks
+            </Tab>
+            <Tab
+              className={activeTab === 1 ? "active" : ""}
+              onClick={() => setActiveTab(1)}
+            >
+              Top Albums
+            </Tab>
+            <Tab
+              className={activeTab === 2 ? "active" : ""}
+              onClick={() => setActiveTab(2)}
+            >
+              Top Artists
+            </Tab>
+          </TabList>
+        )}
         <Auth setToken={setToken} />
       </Header>
-      {token && (
-        <>
-          <MainContainer>
-            <Tabs>
+
+      <MainContainer>
+        {!token ? (
+          <WelcomeCard>
+            <img src={MainLogo} alt="SpotifyTracker" width={68} height={68} />
+            <h1>Descubra suas estatísticas no Spotify</h1>
+            <p>
+              Visualize suas músicas, álbuns e artistas mais ouvidos em diferentes
+              períodos e ouça tudo diretamente pelo player integrado.
+            </p>
+            <Auth setToken={setToken} />
+          </WelcomeCard>
+        ) : (
+          <Tabs>
+            <ToolbarRow>
+              <SectionInfo>
+                <h2>{TAB_DETAILS[activeTab].title}</h2>
+                <p>{TAB_DETAILS[activeTab].subtitle}</p>
+              </SectionInfo>
               <PeriodTabs>
                 <PeriodTabList>
                   <PeriodTab
                     className={timeRange === "short_term" ? "active" : ""}
                     onClick={() => setTimeRange("short_term")}
                   >
-                    Short Term
+                    Últimas 4 Semanas
                   </PeriodTab>
                   <PeriodTab
                     className={timeRange === "medium_term" ? "active" : ""}
                     onClick={() => setTimeRange("medium_term")}
                   >
-                    Medium Term
+                    Últimos 6 Meses
                   </PeriodTab>
                   <PeriodTab
                     className={timeRange === "long_term" ? "active" : ""}
                     onClick={() => setTimeRange("long_term")}
                   >
-                    Long Term
+                    Todo o Período
                   </PeriodTab>
                 </PeriodTabList>
               </PeriodTabs>
-              <TabPanel className={activeTab === 0 ? "active" : ""}>
-                <TopTracks
-                  token={token}
-                  setCurrentTrackUri={setCurrentTrackUri}
-                  timeRange={timeRange}
-                />
-              </TabPanel>
-              <TabPanel className={activeTab === 1 ? "active" : ""}>
-                <TopAlbums
-                  token={token}
-                  setCurrentTrackUri={setCurrentTrackUri}
-                  timeRange={timeRange}
-                />
-              </TabPanel>
-              <TabPanel className={activeTab === 2 ? "active" : ""}>
-                <TopArtists
-                  token={token}
-                  setCurrentTrackUri={setCurrentTrackUri}
-                  timeRange={timeRange}
-                />
-              </TabPanel>
-            </Tabs>
-          </MainContainer>
-          <PlayerWrapper>
-            <SpotifyPlayer
-              token={token}
-              uris={currentTrackUri ? [currentTrackUri] : []}
-              play={true}
-              showSaveIcon={true}
-              magnifySliderOnHover={true}
-              styles={playerStyles}
+            </ToolbarRow>
+
+            <TabPanel className={activeTab === 0 ? "active" : ""}>
+              <TopTracks
+                token={token}
+                currentTrackUri={currentTrackUri}
+                setCurrentTrackUri={setCurrentTrackUri}
+                timeRange={timeRange}
+              />
+            </TabPanel>
+            <TabPanel className={activeTab === 1 ? "active" : ""}>
+              <TopAlbums
+                token={token}
+                currentTrackUri={currentTrackUri}
+                setCurrentTrackUri={setCurrentTrackUri}
+                timeRange={timeRange}
+              />
+            </TabPanel>
+            <TabPanel className={activeTab === 2 ? "active" : ""}>
+              <TopArtists
+                token={token}
+                currentTrackUri={currentTrackUri}
+                setCurrentTrackUri={setCurrentTrackUri}
+                timeRange={timeRange}
+              />
+            </TabPanel>
+          </Tabs>
+        )}
+      </MainContainer>
+
+      {token && (
+        <PlayerWrapper>
+          <SpotifyPlayer
+            token={token}
+            uris={currentTrackUri ? [currentTrackUri] : []}
+            play={!!currentTrackUri}
+            showSaveIcon={true}
+            hideAttribution={true}
+            inlineVolume={false}
+            initialVolume={effectiveVolume / 100}
+            callback={handlePlayerCallback}
+            getPlayer={(playerInstance) => {
+              playerRef.current = playerInstance;
+            }}
+            magnifySliderOnHover={false}
+            styles={playerStyles}
+          />
+
+          <SeekBarContainer
+            onWheel={handleSeekWheel}
+            title="Arraste para escolher o trecho da música ou use o scroll (±5s)"
+          >
+            <SeekTime $alignRight>{formatTime(progressMs)}</SeekTime>
+            <SeekSlider
+              type="range"
+              min="0"
+              max={durationMs || 100}
+              step="100"
+              disabled={!durationMs}
+              value={Math.min(progressMs, durationMs || 100)}
+              $percent={seekPercent}
+              onChange={handleSeekChange}
+              onMouseUp={handleSeekCommit}
+              onTouchEnd={handleSeekCommit}
+              aria-label="Progresso da música"
             />
-          </PlayerWrapper>
-        </>
+            <SeekTime>{formatTime(durationMs)}</SeekTime>
+          </SeekBarContainer>
+
+          <VolumeContainer
+            onWheel={handleVolumeWheel}
+            title="Role o scroll do mouse ou arraste para ajustar o volume"
+          >
+            <VolumeIconButton
+              type="button"
+              onClick={toggleMute}
+              $muted={effectiveVolume === 0}
+              title={effectiveVolume === 0 ? "Ativar som" : "Silenciar"}
+            >
+              <VolumeIcon volume={effectiveVolume} isMuted={isMuted} />
+            </VolumeIconButton>
+            <VolumeStepButton
+              type="button"
+              onClick={() => applyVolume(effectiveVolume - 5)}
+              title="Diminuir volume (-5%)"
+            >
+              −
+            </VolumeStepButton>
+            <VolumeSlider
+              type="range"
+              min="0"
+              max="100"
+              step="1"
+              value={effectiveVolume}
+              $percent={effectiveVolume}
+              onChange={(e) => applyVolume(Number(e.target.value))}
+              aria-label="Volume"
+            />
+            <VolumeStepButton
+              type="button"
+              onClick={() => applyVolume(effectiveVolume + 5)}
+              title="Aumentar volume (+5%)"
+            >
+              +
+            </VolumeStepButton>
+            <VolumePercentage>{effectiveVolume}%</VolumePercentage>
+          </VolumeContainer>
+        </PlayerWrapper>
       )}
     </div>
   );
