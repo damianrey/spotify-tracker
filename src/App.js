@@ -3,6 +3,7 @@ import Auth from "./components/Auth";
 import TopTracks from "./components/TopTracks";
 import TopArtists from "./components/TopArtists";
 import TopAlbums from "./components/TopAlbums";
+import RecentlyPlayed from "./components/RecentlyPlayed";
 import {
   Header,
   HeaderLeft,
@@ -46,6 +47,10 @@ const TAB_DETAILS = [
   {
     title: "Top Artists",
     subtitle: "Os artistas que definem a sua trilha sonora",
+  },
+  {
+    title: "Tocadas Recentemente",
+    subtitle: "As últimas 50 faixas que você ouviu, da mais recente para a mais antiga",
   },
 ];
 
@@ -287,6 +292,12 @@ function App() {
             >
               Top Artists
             </Tab>
+            <Tab
+              className={activeTab === 3 ? "active" : ""}
+              onClick={() => setActiveTab(3)}
+            >
+              Recentes
+            </Tab>
           </TabList>
         )}
         <Auth setToken={setToken} />
@@ -310,28 +321,31 @@ function App() {
                 <h2>{TAB_DETAILS[activeTab].title}</h2>
                 <p>{TAB_DETAILS[activeTab].subtitle}</p>
               </SectionInfo>
-              <PeriodTabs>
-                <PeriodTabList>
-                  <PeriodTab
-                    className={timeRange === "short_term" ? "active" : ""}
-                    onClick={() => setTimeRange("short_term")}
-                  >
-                    Últimas 4 Semanas
-                  </PeriodTab>
-                  <PeriodTab
-                    className={timeRange === "medium_term" ? "active" : ""}
-                    onClick={() => setTimeRange("medium_term")}
-                  >
-                    Últimos 6 Meses
-                  </PeriodTab>
-                  <PeriodTab
-                    className={timeRange === "long_term" ? "active" : ""}
-                    onClick={() => setTimeRange("long_term")}
-                  >
-                    Todo o Período
-                  </PeriodTab>
-                </PeriodTabList>
-              </PeriodTabs>
+              {/* O histórico recente não tem período: a API devolve só as últimas faixas */}
+              {activeTab !== 3 && (
+                <PeriodTabs>
+                  <PeriodTabList>
+                    <PeriodTab
+                      className={timeRange === "short_term" ? "active" : ""}
+                      onClick={() => setTimeRange("short_term")}
+                    >
+                      Últimas 4 Semanas
+                    </PeriodTab>
+                    <PeriodTab
+                      className={timeRange === "medium_term" ? "active" : ""}
+                      onClick={() => setTimeRange("medium_term")}
+                    >
+                      Últimos 6 Meses
+                    </PeriodTab>
+                    <PeriodTab
+                      className={timeRange === "long_term" ? "active" : ""}
+                      onClick={() => setTimeRange("long_term")}
+                    >
+                      Todo o Período
+                    </PeriodTab>
+                  </PeriodTabList>
+                </PeriodTabs>
+              )}
             </ToolbarRow>
 
             <TabPanel className={activeTab === 0 ? "active" : ""}>
@@ -356,6 +370,14 @@ function App() {
                 currentTrackUri={currentTrackUri}
                 setCurrentTrackUri={setCurrentTrackUri}
                 timeRange={timeRange}
+              />
+            </TabPanel>
+            <TabPanel className={activeTab === 3 ? "active" : ""}>
+              <RecentlyPlayed
+                token={token}
+                currentTrackUri={currentTrackUri}
+                setCurrentTrackUri={setCurrentTrackUri}
+                isActive={activeTab === 3}
               />
             </TabPanel>
           </Tabs>
